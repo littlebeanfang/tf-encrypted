@@ -10,21 +10,21 @@ from functools import reduce
 import numpy as np
 import tensorflow as tf
 
-from ..tensor.helpers import inverse
-from ..tensor.factory import (
+from ...tensor.helpers import inverse
+from ...tensor.factory import (
     AbstractFactory,
     AbstractTensor,
     AbstractConstant,
     AbstractVariable,
     AbstractPlaceholder,
 )
-from ..tensor.fixed import FixedpointConfig, _validate_fixedpoint_config
-from ..tensor import int100factory, fixed100
-from ..tensor import int64factory, fixed64
-from ..types import Slice, Ellipse
-from ..player import Player
-from ..config import get_config, tensorflow_supports_int64
-from .protocol import Protocol, global_cache_updaters, memoize, nodes
+from ...tensor.fixed import FixedpointConfig, _validate_fixedpoint_config
+from ...tensor import int100factory, fixed100
+from ...tensor import int64factory, fixed64
+from ...types import Slice, Ellipse
+from ...player import Player
+from ...config import get_config, tensorflow_supports_int64
+from ..protocol import Protocol, global_cache_updaters, memoize, nodes
 
 
 TFEData = Union[np.ndarray, tf.Tensor]
