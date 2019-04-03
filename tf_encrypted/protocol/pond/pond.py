@@ -557,9 +557,7 @@ class Pond(Protocol):
             return integers
 
     @memoize
-    def _decode(
-        self, elements: AbstractTensor, is_scaled: bool
-    ) -> Union[tf.Tensor, np.ndarray]:
+    def _decode(self, elements: AbstractTensor, is_scaled: bool) -> Union[tf.Tensor, np.ndarray]:
         """ Decode tensor of ring elements into tensor of rational numbers """
 
         with tf.name_scope("decode"):
@@ -889,9 +887,7 @@ class Pond(Protocol):
         return x_sliced
 
     @memoize
-    def split(
-        self, x: "PondTensor", num_split: int, axis: int = 0
-    ) -> List["PondTensor"]:
+    def split(self, x: "PondTensor", num_split: int, axis: int = 0) -> List["PondTensor"]:
         return self.dispatch("split", x, num_split, axis=axis)
 
     def stack(self, xs: List["PondTensor"], axis: int = 0):
@@ -2991,9 +2987,7 @@ def _space_to_batch_nd_masked(prot, tensor, block_shape, paddings):
 #
 
 
-def _indexer_public(
-    prot: Pond, tensor: PondPublicTensor, slice: Union[Slice, Ellipse]
-) -> "PondPublicTensor":
+def _indexer_public(prot: Pond, tensor: PondPublicTensor, slice) -> "PondPublicTensor":
 
     with tf.name_scope("index"):
 
@@ -3006,9 +3000,7 @@ def _indexer_public(
         return PondPublicTensor(prot, v_on_0, v_on_1, tensor.is_scaled)
 
 
-def _indexer_private(
-    prot: Pond, tensor: PondPrivateTensor, slice: Union[Slice, Ellipse]
-) -> "PondPrivateTensor":
+def _indexer_private(prot: Pond, tensor: PondPrivateTensor, slice) -> "PondPrivateTensor":
 
     with tf.name_scope("index"):
 
@@ -3021,9 +3013,7 @@ def _indexer_private(
     return PondPrivateTensor(prot, s0, s1, tensor.is_scaled)
 
 
-def _indexer_masked(
-    prot: Pond, tensor: PondMaskedTensor, slice: Union[Slice, Ellipse]
-) -> "PondMaskedTensor":
+def _indexer_masked(prot: Pond, tensor: PondMaskedTensor, slice) -> "PondMaskedTensor":
 
     with tf.name_scope("index"):
 
@@ -3228,9 +3218,7 @@ def _split_private(
         ]
 
 
-def _split_masked(
-    prot: Pond, x: PondMaskedTensor, num_split: int, axis: int = 0
-) -> List[PondMaskedTensor]:
+def _split_masked(prot: Pond, x: PondMaskedTensor, num_split, axis=0) -> List[PondMaskedTensor]:
 
     a, a0, a1, alpha_on_0, alpha_on_1 = x.unwrapped
 
@@ -3632,10 +3620,9 @@ def _squeeze_private(
         return PondPrivateTensor(prot, x0_squeezed, x1_squeezed, x.is_scaled)
 
 
-def _squeeze_masked(
-    prot: Pond, x: PondMaskedTensor, axis: Optional[int] = None
-) -> PondMaskedTensor:
+def _squeeze_masked(prot: Pond, x: PondMaskedTensor, axis=None) -> PondMaskedTensor:
     assert isinstance(x, PondMaskedTensor)
+
     a, a0, a1, alpha_on_0, alpha_on_1 = x.unwrapped
 
     with tf.name_scope("squeeze"):
