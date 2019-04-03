@@ -65,7 +65,12 @@ class Pond(Protocol):
         self.server_1 = server_1 or get_config().get_player("server1")
         crypto_producer = crypto_producer or get_config().get_player("server2")
         crypto_producer = crypto_producer or get_config().get_player("crypto-producer")
-        self.triple_source = OnlineTripleSource(crypto_producer.device_name)
+
+        # self.triple_source = OnlineTripleSource(crypto_producer.device_name)
+        self.triple_source = QueuedTripleSource(
+            player0=self.server_0,
+            player1=self.server_1,
+            producer=crypto_producer)
 
         if tensor_factory is None:
             if tensorflow_supports_int64():
@@ -2499,6 +2504,222 @@ def _mul_masked_masked(prot, x, y):
         z = prot.truncate(z) if x.is_scaled and y.is_scaled else z
         return z
 
+
+class QueuedTripleSource:
+
+    def __init__(self, player0, player1, producer, capacity=1):
+        self.player0 = player0
+        self.player1 = player1
+        self.producer = producer
+        self.capacity = capacity
+        self.enqueue = list()
+
+    def mask(self, backing_dtype, shape):
+
+        # TODO(Morten) manually unwrap and re-wrap of queued values, should be hidden away
+
+        with tf.name_scope("triple-generation"):
+
+            with tf.device(self.producer.device_name):
+                a0 = backing_dtype.sample_uniform(shape)
+                a1 = backing_dtype.sample_uniform(shape)
+                a = a0 + a1
+
+        with tf.device(self.player0.device_name):
+            q0 = tf.queue.FIFOQueue(
+                capacity=self.capacity,
+                dtypes=[a0.factory.native_type],
+                shapes=[a0.shape],
+            )
+
+        with tf.device(self.player1.device_name):
+            q1 = tf.queue.FIFOQueue(
+                capacity=self.capacity,
+                dtypes=[a1.factory.native_type],
+                shapes=[a1.shape]
+            )
+
+        with tf.name_scope("triple-distribution"):
+
+            with tf.device(self.player0.device_name):
+                e0 = q0.enqueue(a0.value)
+
+        with tf.name_scope("triple-distribution"):
+
+            with tf.device(self.player1.device_name):
+                e1 = q1.enqueue(a1.value)
+
+        with tf.name_scope("triple-loading"):
+
+            with tf.device(self.player0.device_name):
+                d0 = a0.factory.tensor(q0.dequeue())
+
+        with tf.name_scope("triple-loading"):
+
+            with tf.device(self.player1.device_name):
+                d1 = a1.factory.tensor(q1.dequeue())
+
+        self.enqueue += [e0, e1]
+        return a, d0, d1
+
+    def _share(self, secret):
+
+        with tf.name_scope("share"):
+            share0 = secret.factory.sample_uniform(secret.shape)
+            share1 = secret - share0
+
+            # randomized swap to distribute who gets the seed
+            if random() < 0.5:
+                share0, share1 = share1, share0
+
+        return share0, share1
+
+    def mul_triple(self, a, b):
+
+        # TODO(Morten) manually unwrap and re-wrap of queued values, should be hidden away
+
+        with tf.name_scope("triple-generation"):
+            with tf.device(self.producer.device_name):
+                ab = a * b
+                ab0, ab1 = self._share(ab)
+
+        with tf.device(self.player0.device_name):
+            q0 = tf.queue.FIFOQueue(
+                capacity=self.capacity,
+                dtypes=[ab0.factory.native_type],
+                shapes=[ab0.shape],
+            )
+
+        with tf.device(self.player1.device_name):
+            q1 = tf.queue.FIFOQueue(
+                capacity=self.capacity,
+                dtypes=[ab1.factory.native_type],
+                shapes=[ab1.shape],
+            )
+
+        with tf.name_scope("triple-distribution"):
+
+            with tf.device(self.player0.device_name):
+                e0 = q0.enqueue(ab0.value)
+
+        with tf.name_scope("triple-distribution"):
+
+            with tf.device(self.player1.device_name):
+                e1 = q1.enqueue(ab1.value)
+
+        with tf.name_scope("triple-loading"):
+
+            with tf.device(self.player0.device_name):
+                d0 = ab0.factory.tensor(q0.dequeue())
+
+        with tf.name_scope("triple-loading"):
+
+            with tf.device(self.player1.device_name):
+                d1 = ab1.factory.tensor(q1.dequeue())
+
+        self.enqueue += [e0, e1]
+        return d0, d1
+
+    def square_triple(self, a):
+
+        with tf.device(self.producer.device_name):
+            with tf.name_scope("triple"):
+                aa = a * a
+                aa0, aa1 = self._share(aa)
+
+        return aa0, aa1
+
+    def matmul_triple(self, a, b):
+
+        with tf.device(self.producer.device_name):
+            with tf.name_scope("triple"):
+                ab = a.matmul(b)
+                ab0, ab1 = self._share(ab)
+
+        return ab0, ab1
+
+    def conv2d_triple(self, a, b, strides, padding):
+
+        with tf.device(self.producer.device_name):
+            with tf.name_scope("triple"):
+                a_conv2d_b = a.conv2d(b, strides, padding)
+                a_conv2d_b0, a_conv2d_b1 = self._share(a_conv2d_b)
+
+        return a_conv2d_b0, a_conv2d_b1
+
+    def indexer_mask(self, a, slice):
+
+        with tf.device(self.producer.device_name):
+            a_sliced = a[slice]
+
+        return a_sliced
+
+    def transpose_mask(self, a, perm):
+
+        with tf.device(self.producer.device_name):
+            a_t = a.transpose(perm=perm)
+
+        return a_t
+
+    def strided_slice_mask(self, a, args, kwargs):
+
+        with tf.device(self.producer.device_name):
+            a_slice = a.strided_slice(args, kwargs)
+
+        return a_slice
+
+    def split_mask(self, a, num_split, axis):
+
+        with tf.device(self.producer.device_name):
+            bs = a.split(num_split=num_split, axis=axis)
+
+        return bs
+
+    def stack_mask(self, bs, axis):
+
+        factory = bs[0].factory
+
+        with tf.device(self.producer.device_name):
+            b_stacked = factory.stack(bs, axis=axis)
+
+        return b_stacked
+
+    def concat_mask(self, bs, axis):
+
+        factory = bs[0].factory
+
+        with tf.device(self.producer.device_name):
+            b_stacked = factory.concat(bs, axis=axis)
+
+        return b_stacked
+
+    def reshape_mask(self, a, shape):
+
+        with tf.device(self.producer.device_name):
+            a_reshaped = a.reshape(shape=shape)
+
+        return a_reshaped
+
+    def expand_dims_mask(self, a, axis):
+
+        with tf.device(self.producer.device_name):
+            a_e = a.expand_dims(axis=axis)
+
+        return a_e
+
+    def squeeze_mask(self, a, axis):
+
+        with tf.device(self.producer.device_name):
+            a_squeezed = a.squeeze(axis=axis)
+
+        return a_squeezed
+
+    def cache(self, a):
+
+        with tf.device(self.producer.device_name):
+            return _cache_wrap_helper([a])
+
+
 class OnlineTripleSource:
 
     def __init__(self, device_name):
@@ -3530,19 +3751,21 @@ def _mask_private(prot: Pond, x: PondPrivateTensor) -> PondMaskedTensor:
 
         a, a0, a1 = prot.triple_source.mask(x.backing_dtype, x.shape)
 
-        with tf.device(prot.server_0.device_name):
-            alpha0 = x0 - a0
+        with tf.name_scope("online"):
 
-        with tf.device(prot.server_1.device_name):
-            alpha1 = x1 - a1
+            with tf.device(prot.server_0.device_name):
+                alpha0 = x0 - a0
 
-        with tf.device(prot.server_0.device_name):
-            alpha_on_0 = alpha0 + alpha1
+            with tf.device(prot.server_1.device_name):
+                alpha1 = x1 - a1
 
-        with tf.device(prot.server_1.device_name):
-            alpha_on_1 = alpha0 + alpha1
+            with tf.device(prot.server_0.device_name):
+                alpha_on_0 = alpha0 + alpha1
 
-        return PondMaskedTensor(prot, x, a, a0, a1, alpha_on_0, alpha_on_1, x.is_scaled)
+            with tf.device(prot.server_1.device_name):
+                alpha_on_1 = alpha0 + alpha1
+
+    return PondMaskedTensor(prot, x, a, a0, a1, alpha_on_0, alpha_on_1, x.is_scaled)
 
 
 #
