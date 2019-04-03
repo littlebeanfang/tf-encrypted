@@ -2471,6 +2471,34 @@ def _mul_masked_private(prot, x, y):
     return prot.mul(x, prot.mask(y))
 
 
+
+def _mul_masked_masked(prot, x, y):
+    assert isinstance(x, PondMaskedTensor), type(x)
+    assert isinstance(y, PondMaskedTensor), type(y)
+
+    a, a0, a1, alpha_on_0, alpha_on_1 = x.unwrapped
+    b, b0, b1, beta_on_0, beta_on_1 = y.unwrapped
+
+    with tf.name_scope("mul"):
+
+        ab0, ab1 = prot.triple_source.mul_triple(a, b)
+
+        with tf.device(prot.server_0.device_name):
+            with tf.name_scope("combine"):
+                alpha = alpha_on_0
+                beta = beta_on_0
+                z0 = ab0 + (a0 * beta) + (alpha * b0) + (alpha * beta)
+
+        with tf.device(prot.server_1.device_name):
+            with tf.name_scope("combine"):
+                alpha = alpha_on_1
+                beta = beta_on_1
+                z1 = ab1 + (a1 * beta) + (alpha * b1)
+
+        z = PondPrivateTensor(prot, z0, z1, x.is_scaled or y.is_scaled)
+        z = prot.truncate(z) if x.is_scaled and y.is_scaled else z
+        return z
+
 class OnlineTripleSource:
 
     def __init__(self, device_name):
@@ -2604,34 +2632,6 @@ class OnlineTripleSource:
 
         with tf.device(self.device_name):
             return _cache_wrap_helper([a])
-
-
-def _mul_masked_masked(prot, x, y):
-    assert isinstance(x, PondMaskedTensor), type(x)
-    assert isinstance(y, PondMaskedTensor), type(y)
-
-    a, a0, a1, alpha_on_0, alpha_on_1 = x.unwrapped
-    b, b0, b1, beta_on_0, beta_on_1 = y.unwrapped
-
-    with tf.name_scope("mul"):
-
-        ab0, ab1 = prot.triple_source.mul_triple(a, b)
-
-        with tf.device(prot.server_0.device_name):
-            with tf.name_scope("combine"):
-                alpha = alpha_on_0
-                beta = beta_on_0
-                z0 = ab0 + (a0 * beta) + (alpha * b0) + (alpha * beta)
-
-        with tf.device(prot.server_1.device_name):
-            with tf.name_scope("combine"):
-                alpha = alpha_on_1
-                beta = beta_on_1
-                z1 = ab1 + (a1 * beta) + (alpha * b1)
-
-        z = PondPrivateTensor(prot, z0, z1, x.is_scaled or y.is_scaled)
-        z = prot.truncate(z) if x.is_scaled and y.is_scaled else z
-        return z
 
 
 #
