@@ -1798,10 +1798,10 @@ def debug(x: PondTensor, summarize=None, message=""):
 #
 
 
-def _cache_wrap_helper(prot, sources):
+def _cache_wrap_helper(sources):
     variables = [
-        prot.tensor_factory.variable(
-            tf.zeros(shape=source.shape, dtype=prot.tensor_factory.native_type)
+        source.factory.variable(
+            tf.zeros(shape=source.shape, dtype=source.factory.native_type)
         )
         for source in sources
     ]
@@ -1819,10 +1819,10 @@ def _cache_public(prot, x):
     with tf.name_scope("cache"):
 
         with tf.device(prot.server_0.device_name):
-            [x_on_0_cached], updater0 = _cache_wrap_helper(prot, [x_on_0])
+            [x_on_0_cached], updater0 = _cache_wrap_helper([x_on_0])
 
         with tf.device(prot.server_1.device_name):
-            [x_on_1_cached], updater1 = _cache_wrap_helper(prot, [x_on_1])
+            [x_on_1_cached], updater1 = _cache_wrap_helper([x_on_1])
 
         updater = tf.group(updater0, updater1)
 
