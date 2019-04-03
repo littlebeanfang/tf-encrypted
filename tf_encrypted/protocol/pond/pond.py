@@ -65,7 +65,7 @@ class Pond(Protocol):
         self.server_1 = server_1 or get_config().get_player("server1")
         crypto_producer = crypto_producer or get_config().get_player("server2")
         crypto_producer = crypto_producer or get_config().get_player("crypto-producer")
-        self.crypto_producer = crypto_producer
+        self.triple_source = OnlineTripleSource(crypto_producer.device_name)
 
         if tensor_factory is None:
             if tensorflow_supports_int64():
@@ -1859,18 +1859,13 @@ def _cache_masked(prot, x):
 
     with tf.name_scope("cache"):
 
-        with tf.device(prot.crypto_producer.device_name):
-            [a_cached], updater_cp = _cache_wrap_helper(prot, [a])
+        [a_cached], updater_cp = prot.triple_source.cache(a)
 
         with tf.device(prot.server_0.device_name):
-            [a0_cached, alpha_on_0_cached], updater0 = _cache_wrap_helper(
-                prot, [a0, alpha_on_0]
-            )
+            [a0_cached, alpha_on_0_cached], updater0 = _cache_wrap_helper([a0, alpha_on_0])
 
         with tf.device(prot.server_1.device_name):
-            [a1_cached, alpha_on_1_cached], updater1 = _cache_wrap_helper(
-                prot, [a1, alpha_on_1]
-            )
+            [a1_cached, alpha_on_1_cached], updater1 = _cache_wrap_helper([a1, alpha_on_1])
 
         updater = tf.group(updater_cp, updater0, updater1)
         unmasked_cached = prot.cache(unmasked)
@@ -2476,6 +2471,141 @@ def _mul_masked_private(prot, x, y):
     return prot.mul(x, prot.mask(y))
 
 
+class OnlineTripleSource:
+
+    def __init__(self, device_name):
+        self.device_name = device_name
+
+    def _share(self, secret):
+
+        with tf.name_scope("share"):
+            share0 = secret.factory.sample_uniform(secret.shape)
+            share1 = secret - share0
+
+            # randomized swap to distribute who gets the seed
+            if random() < 0.5:
+                share0, share1 = share1, share0
+
+        return share0, share1
+
+    def mul_triple(self, a, b):
+
+        with tf.device(self.device_name):
+            with tf.name_scope("triple"):
+                ab = a * b
+                ab0, ab1 = self._share(ab)
+
+        return ab0, ab1
+
+    def square_triple(self, a):
+
+        with tf.device(self.device_name):
+            with tf.name_scope("triple"):
+                aa = a * a
+                aa0, aa1 = self._share(aa)
+
+        return aa0, aa1
+
+    def matmul_triple(self, a, b):
+
+        with tf.device(self.device_name):
+            with tf.name_scope("triple"):
+                ab = a.matmul(b)
+                ab0, ab1 = self._share(ab)
+
+        return ab0, ab1
+
+    def conv2d_triple(self, a, b, strides, padding):
+
+        with tf.device(self.device_name):
+            with tf.name_scope("triple"):
+                a_conv2d_b = a.conv2d(b, strides, padding)
+                a_conv2d_b0, a_conv2d_b1 = self._share(a_conv2d_b)
+
+        return a_conv2d_b0, a_conv2d_b1
+
+    def indexer_mask(self, a, slice):
+
+        with tf.device(self.device_name):
+            a_sliced = a[slice]
+
+        return a_sliced
+
+    def transpose_mask(self, a, perm):
+
+        with tf.device(self.device_name):
+            a_t = a.transpose(perm=perm)
+
+        return a_t
+
+    def strided_slice_mask(self, a, args, kwargs):
+
+        with tf.device(self.device_name):
+            a_slice = a.strided_slice(args, kwargs)
+
+        return a_slice
+
+    def split_mask(self, a, num_split, axis):
+
+        with tf.device(self.device_name):
+            bs = a.split(num_split=num_split, axis=axis)
+
+        return bs
+
+    def stack_mask(self, bs, axis):
+
+        factory = bs[0].factory
+
+        with tf.device(self.device_name):
+            b_stacked = factory.stack(bs, axis=axis)
+
+        return b_stacked
+
+    def concat_mask(self, bs, axis):
+
+        factory = bs[0].factory
+
+        with tf.device(self.device_name):
+            b_stacked = factory.concat(bs, axis=axis)
+
+        return b_stacked
+
+    def reshape_mask(self, a, shape):
+
+        with tf.device(self.device_name):
+            a_reshaped = a.reshape(shape=shape)
+
+        return a_reshaped
+
+    def expand_dims_mask(self, a, axis):
+
+        with tf.device(self.device_name):
+            a_e = a.expand_dims(axis=axis)
+
+        return a_e
+
+    def squeeze_mask(self, a, axis):
+
+        with tf.device(self.device_name):
+            a_squeezed = a.squeeze(axis=axis)
+
+        return a_squeezed
+
+    def mask(self, backing_dtype, shape):
+
+        with tf.device(self.device_name):
+            a0 = backing_dtype.sample_uniform(shape)
+            a1 = backing_dtype.sample_uniform(shape)
+            a = a0 + a1
+
+        return a, a0, a1
+
+    def cache(self, a):
+
+        with tf.device(self.device_name):
+            return _cache_wrap_helper([a])
+
+
 def _mul_masked_masked(prot, x, y):
     assert isinstance(x, PondMaskedTensor), type(x)
     assert isinstance(y, PondMaskedTensor), type(y)
@@ -2485,10 +2615,7 @@ def _mul_masked_masked(prot, x, y):
 
     with tf.name_scope("mul"):
 
-        with tf.device(prot.crypto_producer.device_name):
-            with tf.name_scope("triple"):
-                ab = a * b
-                ab0, ab1 = prot._share(ab)
+        ab0, ab1 = prot.triple_source.mul_triple(a, b)
 
         with tf.device(prot.server_0.device_name):
             with tf.name_scope("combine"):
@@ -2542,10 +2669,7 @@ def _square_masked(prot, x):
 
     with tf.name_scope("square"):
 
-        with tf.device(prot.crypto_producer.device_name):
-            with tf.name_scope("triple"):
-                aa = a * a
-                aa0, aa1 = prot._share(aa)
+        aa0, aa1 = prot.triple_source.square_triple(a)
 
         with tf.device(prot.server_0.device_name):
             with tf.name_scope("combine"):
@@ -2666,10 +2790,7 @@ def _matmul_masked_masked(prot, x, y):
 
     with tf.name_scope("matmul"):
 
-        with tf.device(prot.crypto_producer.device_name):
-            with tf.name_scope("triple"):
-                ab = a.matmul(b)
-                ab0, ab1 = prot._share(ab)
+        ab0, ab1 = prot.triple_source.matmul_triple(a, b)
 
         with tf.device(prot.server_0.device_name):
             with tf.name_scope("combine"):
@@ -2757,10 +2878,7 @@ def _conv2d_masked_masked(prot, x, y, strides, padding):
 
     with tf.name_scope("conv2d"):
 
-        with tf.device(prot.crypto_producer.device_name):
-            with tf.name_scope("triple"):
-                a_conv2d_b = a.conv2d(b, strides, padding)
-                a_conv2d_b0, a_conv2d_b1 = prot._share(a_conv2d_b)
+        a_conv2d_b0, a_conv2d_b1 = prot.triple_source.conv2d_triple(a, b, strides, padding)
 
         with tf.device(prot.server_0.device_name):
             with tf.name_scope("combine"):
@@ -3017,8 +3135,8 @@ def _indexer_masked(prot: Pond, tensor: PondMaskedTensor, slice) -> "PondMaskedT
 
     with tf.name_scope("index"):
 
-        with tf.device(prot.crypto_producer.device_name):
-            a = tensor.a[slice]
+        # TODO(Morten) we could save a0 and a1 on disk as well; what's best performance wise?
+        a = prot.triple_source.indexer_mask(tensor.a, slice)
 
         with tf.device(prot.server_0.device_name):
             a0 = tensor.a0[slice]
@@ -3084,8 +3202,7 @@ def _transpose_masked(prot, x, perm=None):
 
     with tf.name_scope("transpose"):
 
-        with tf.device(prot.crypto_producer.device_name):
-            a_t = a.transpose(perm=perm)
+        a_t = prot.triple_source.transpose_mask(perm=perm)
 
         with tf.device(prot.server_0.device_name):
             a0_t = a0.transpose(perm=perm)
@@ -3151,8 +3268,7 @@ def _strided_slice_masked(prot, x: PondMaskedTensor, args: Any, kwargs: Any):
 
     with tf.name_scope("strided_slice"):
 
-        with tf.device(prot.crypto_producer.device_name):
-            a_slice = a.strided_slice(args, kwargs)
+        a_slice = prot.triple_source.strided_slice_mask(a, args, kwargs)
 
         with tf.device(prot.server_0.device_name):
             a0_slice = a0.strided_slice(args, kwargs)
@@ -3224,8 +3340,7 @@ def _split_masked(prot: Pond, x: PondMaskedTensor, num_split, axis=0) -> List[Po
 
     with tf.name_scope("split"):
 
-        with tf.device(prot.crypto_producer.device_name):
-            bs = a.split(num_split, axis=axis)
+        bs = prot.triple_source.split_mask(a, num_split=num_split, axis=axis)
 
         with tf.device(prot.server_0.device_name):
             bs0 = a0.split(num_split, axis=axis)
@@ -3301,8 +3416,7 @@ def _stack_masked(
 
     with tf.name_scope("stack"):
 
-        with tf.device(prot.crypto_producer.device_name):
-            a_stacked = factory.stack(a, axis=axis)
+        a_stacked = prot.triple_source.stack_mask(a, axis=axis)
 
         with tf.device(prot.server_0.device_name):
             a0_stacked = factory.stack(a0, axis=axis)
@@ -3380,8 +3494,7 @@ def _concat_masked(
 
     with tf.name_scope("concat"):
 
-        with tf.device(prot.crypto_producer.device_name):
-            a_concat = factory.concat(a, axis=axis)
+        a_concat = prot.triple_source.concat_mask(a, axis=axis)
 
         with tf.device(prot.server_0.device_name):
             a0_concat = factory.concat(a0, axis=axis)
@@ -3415,10 +3528,7 @@ def _mask_private(prot: Pond, x: PondPrivateTensor) -> PondMaskedTensor:
 
     with tf.name_scope("mask"):
 
-        with tf.device(prot.crypto_producer.device_name):
-            a0 = x.backing_dtype.sample_uniform(x.shape)
-            a1 = x.backing_dtype.sample_uniform(x.shape)
-            a = a0 + a1
+        a, a0, a1 = prot.triple_source.mask(x.backing_dtype, x.shape)
 
         with tf.device(prot.server_0.device_name):
             alpha0 = x0 - a0
@@ -3484,8 +3594,7 @@ def _reshape_masked(
 
     with tf.name_scope("reshape"):
 
-        with tf.device(prot.crypto_producer.device_name):
-            a_reshaped = a.reshape(shape)
+        a_reshaped = prot.triple_source.reshape_mask(a, shape=shape)
 
         with tf.device(prot.server_0.device_name):
             a0_reshaped = a0.reshape(shape)
@@ -3556,8 +3665,7 @@ def _expand_dims_masked(
 
     with tf.name_scope("expand"):
 
-        with tf.device(prot.crypto_producer.device_name):
-            a_e = a.expand_dims(axis=axis)
+        a_e = prot.triple_source.expand_dims_mask(a, axis=axis)
 
         with tf.device(prot.server_0.device_name):
             a0_e = a0.expand_dims(axis=axis)
@@ -3627,8 +3735,7 @@ def _squeeze_masked(prot: Pond, x: PondMaskedTensor, axis=None) -> PondMaskedTen
 
     with tf.name_scope("squeeze"):
 
-        with tf.device(prot.crypto_producer.device_name):
-            a_squeezed = a.squeeze(axis)
+        a_squeezed = prot.triple_source.squeeze_mask(axis=axis)
 
         with tf.device(prot.server_0.device_name):
             a0_squeezed = a0.squeeze(axis)
