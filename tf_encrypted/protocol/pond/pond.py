@@ -2565,29 +2565,33 @@ class QueuedTripleSource:
 
     def indexer_mask(self, a, slice):
 
-        with tf.device(self.producer.device_name):
-            a_sliced = a[slice]
+        with tf.name_scope("mask-transformation"):
+            with tf.device(self.producer.device_name):
+                a_sliced = a[slice]
 
         return a_sliced
 
     def transpose_mask(self, a, perm):
 
-        with tf.device(self.producer.device_name):
-            a_t = a.transpose(perm=perm)
+        with tf.name_scope("mask-transformation"):
+            with tf.device(self.producer.device_name):
+                a_t = a.transpose(perm=perm)
 
         return a_t
 
     def strided_slice_mask(self, a, args, kwargs):
 
-        with tf.device(self.producer.device_name):
-            a_slice = a.strided_slice(args, kwargs)
+        with tf.name_scope("mask-transformation"):
+            with tf.device(self.producer.device_name):
+                a_slice = a.strided_slice(args, kwargs)
 
         return a_slice
 
     def split_mask(self, a, num_split, axis):
 
-        with tf.device(self.producer.device_name):
-            bs = a.split(num_split=num_split, axis=axis)
+        with tf.name_scope("mask-transformation"):
+            with tf.device(self.producer.device_name):
+                bs = a.split(num_split=num_split, axis=axis)
 
         return bs
 
@@ -2595,8 +2599,9 @@ class QueuedTripleSource:
 
         factory = bs[0].factory
 
-        with tf.device(self.producer.device_name):
-            b_stacked = factory.stack(bs, axis=axis)
+        with tf.name_scope("mask-transformation"):
+            with tf.device(self.producer.device_name):
+                b_stacked = factory.stack(bs, axis=axis)
 
         return b_stacked
 
@@ -2604,29 +2609,33 @@ class QueuedTripleSource:
 
         factory = bs[0].factory
 
-        with tf.device(self.producer.device_name):
-            b_stacked = factory.concat(bs, axis=axis)
+        with tf.name_scope("mask-transformation"):
+            with tf.device(self.producer.device_name):
+                b_stacked = factory.concat(bs, axis=axis)
 
         return b_stacked
 
     def reshape_mask(self, a, shape):
 
-        with tf.device(self.producer.device_name):
-            a_reshaped = a.reshape(shape=shape)
+        with tf.name_scope("mask-transformation"):
+            with tf.device(self.producer.device_name):
+                a_reshaped = a.reshape(shape)
 
         return a_reshaped
 
     def expand_dims_mask(self, a, axis):
 
-        with tf.device(self.producer.device_name):
-            a_e = a.expand_dims(axis=axis)
+        with tf.name_scope("mask-transformation"):
+            with tf.device(self.producer.device_name):
+                a_e = a.expand_dims(axis=axis)
 
         return a_e
 
     def squeeze_mask(self, a, axis):
 
-        with tf.device(self.producer.device_name):
-            a_squeezed = a.squeeze(axis=axis)
+        with tf.name_scope("mask-transformation"):
+            with tf.device(self.producer.device_name):
+                a_squeezed = a.squeeze(axis=axis)
 
         return a_squeezed
 
