@@ -2509,7 +2509,7 @@ class QueuedTripleSource:
 
     # TODO(Morten) manually unwrap and re-wrap of queued values, should be hidden away
 
-    def __init__(self, player0, player1, producer, capacity=1):
+    def __init__(self, player0, player1, producer, capacity=10):
         self.player0 = player0
         self.player1 = player1
         self.producer = producer
