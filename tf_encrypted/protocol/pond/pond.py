@@ -2519,44 +2519,13 @@ class QueuedTripleSource:
     def mask(self, backing_dtype, shape):
 
         with tf.name_scope("triple-generation"):
-
             with tf.device(self.producer.device_name):
                 a0 = backing_dtype.sample_uniform(shape)
                 a1 = backing_dtype.sample_uniform(shape)
                 a = a0 + a1
 
-        with tf.device(self.player0.device_name):
-            q0 = tf.queue.FIFOQueue(
-                capacity=self.capacity,
-                dtypes=[a0.factory.native_type],
-                shapes=[a0.shape],
-            )
-            e0 = q0.enqueue(a0.value)
-            d0 = a0.factory.tensor(q0.dequeue())
-
-        with tf.device(self.player1.device_name):
-            q1 = tf.queue.FIFOQueue(
-                capacity=self.capacity,
-                dtypes=[a1.factory.native_type],
-                shapes=[a1.shape]
-            )
-            e1 = q1.enqueue(a1.value)
-            d1 = a1.factory.tensor(q1.dequeue())
-
-        self.enqueue += [e0, e1]
+        d0, d1 = self._build_queues(a0, a1, "mask-queue")
         return a, d0, d1
-
-    def _share(self, secret):
-
-        with tf.name_scope("share"):
-            share0 = secret.factory.sample_uniform(secret.shape)
-            share1 = secret - share0
-
-            # randomized swap to distribute who gets the seed
-            if random() < 0.5:
-                share0, share1 = share1, share0
-
-        return share0, share1
 
     def mul_triple(self, a, b):
 
@@ -2565,26 +2534,7 @@ class QueuedTripleSource:
                 ab = a * b
                 ab0, ab1 = self._share(ab)
 
-        with tf.device(self.player0.device_name):
-            q0 = tf.queue.FIFOQueue(
-                capacity=self.capacity,
-                dtypes=[ab0.factory.native_type],
-                shapes=[ab0.shape],
-            )
-            e0 = q0.enqueue(ab0.value)
-            d0 = ab0.factory.tensor(q0.dequeue())
-
-        with tf.device(self.player1.device_name):
-            q1 = tf.queue.FIFOQueue(
-                capacity=self.capacity,
-                dtypes=[ab1.factory.native_type],
-                shapes=[ab1.shape],
-            )
-            e1 = q1.enqueue(ab1.value)
-            d1 = ab1.factory.tensor(q1.dequeue())
-
-        self.enqueue += [e0, e1]
-        return d0, d1
+        return self._build_queues(ab0, ab1, "triple-queue")
 
     def square_triple(self, a):
 
@@ -2593,26 +2543,7 @@ class QueuedTripleSource:
                 aa = a * a
                 aa0, aa1 = self._share(aa)
 
-        with tf.device(self.player0.device_name):
-            q0 = tf.queue.FIFOQueue(
-                capacity=self.capacity,
-                dtypes=[aa0.factory.native_type],
-                shapes=[aa0.shape],
-            )
-            e0 = q0.enqueue(aa0.value)
-            d0 = aa0.factory.tensor(q0.dequeue())
-
-        with tf.device(self.player1.device_name):
-            q1 = tf.queue.FIFOQueue(
-                capacity=self.capacity,
-                dtypes=[aa1.factory.native_type],
-                shapes=[aa1.shape],
-            )
-            e1 = q1.enqueue(aa1.value)
-            d1 = aa1.factory.tensor(q1.dequeue())
-
-        self.enqueue += [e0, e1]
-        return d0, d1
+        return self._build_queues(aa0, aa1, "triple-queue")
 
     def matmul_triple(self, a, b):
 
@@ -2620,27 +2551,8 @@ class QueuedTripleSource:
             with tf.device(self.producer.device_name):
                 ab = a.matmul(b)
                 ab0, ab1 = self._share(ab)
-
-        with tf.device(self.player0.device_name):
-            q0 = tf.queue.FIFOQueue(
-                capacity=self.capacity,
-                dtypes=[ab0.factory.native_type],
-                shapes=[ab0.shape],
-            )
-            e0 = q0.enqueue(ab0.value)
-            d0 = ab0.factory.tensor(q0.dequeue())
-
-        with tf.device(self.player1.device_name):
-            q1 = tf.queue.FIFOQueue(
-                capacity=self.capacity,
-                dtypes=[ab1.factory.native_type],
-                shapes=[ab1.shape],
-            )
-            e1 = q1.enqueue(ab1.value)
-            d1 = ab1.factory.tensor(q1.dequeue())
-
-        self.enqueue += [e0, e1]
-        return d0, d1
+    
+        return self._build_queues(ab0, ab1, "triple-queue")
 
     def conv2d_triple(self, a, b, strides, padding):
 
@@ -2722,6 +2634,43 @@ class QueuedTripleSource:
 
         with tf.device(self.producer.device_name):
             return _cache_wrap_helper([a])
+
+    def _share(self, secret):
+
+        with tf.name_scope("share"):
+            share0 = secret.factory.sample_uniform(secret.shape)
+            share1 = secret - share0
+
+            # randomized swap to distribute who gets the seed
+            if random() < 0.5:
+                share0, share1 = share1, share0
+
+        return share0, share1
+
+    def _build_queues(self, c0, c1, queue_name=None):
+
+        with tf.device(self.player0.device_name):
+            q0 = tf.queue.FIFOQueue(
+                capacity=self.capacity,
+                dtypes=[c0.factory.native_type],
+                shapes=[c0.shape],
+                name="{}0".format(queue_name) if queue_name else None,
+            )
+            e0 = q0.enqueue(c0.value)
+            d0 = c0.factory.tensor(q0.dequeue())
+
+        with tf.device(self.player1.device_name):
+            q1 = tf.queue.FIFOQueue(
+                capacity=self.capacity,
+                dtypes=[c1.factory.native_type],
+                shapes=[c1.shape],
+                name="{}1".format(queue_name) if queue_name else None,
+            )
+            e1 = q1.enqueue(c1.value)
+            d1 = c1.factory.tensor(q1.dequeue())
+
+        self.enqueue += [e0, e1]
+        return d0, d1
 
 
 class OnlineTripleSource:
