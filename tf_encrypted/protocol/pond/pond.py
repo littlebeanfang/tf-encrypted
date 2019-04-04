@@ -2507,6 +2507,8 @@ def _mul_masked_masked(prot, x, y):
 
 class QueuedTripleSource:
 
+    # TODO(Morten) manually unwrap and re-wrap of queued values, should be hidden away
+
     def __init__(self, player0, player1, producer, capacity=1):
         self.player0 = player0
         self.player1 = player1
@@ -2515,8 +2517,6 @@ class QueuedTripleSource:
         self.enqueue = list()
 
     def mask(self, backing_dtype, shape):
-
-        # TODO(Morten) manually unwrap and re-wrap of queued values, should be hidden away
 
         with tf.name_scope("triple-generation"):
 
@@ -2531,6 +2531,8 @@ class QueuedTripleSource:
                 dtypes=[a0.factory.native_type],
                 shapes=[a0.shape],
             )
+            e0 = q0.enqueue(a0.value)
+            d0 = a0.factory.tensor(q0.dequeue())
 
         with tf.device(self.player1.device_name):
             q1 = tf.queue.FIFOQueue(
@@ -2538,26 +2540,8 @@ class QueuedTripleSource:
                 dtypes=[a1.factory.native_type],
                 shapes=[a1.shape]
             )
-
-        with tf.name_scope("triple-distribution"):
-
-            with tf.device(self.player0.device_name):
-                e0 = q0.enqueue(a0.value)
-
-        with tf.name_scope("triple-distribution"):
-
-            with tf.device(self.player1.device_name):
-                e1 = q1.enqueue(a1.value)
-
-        with tf.name_scope("triple-loading"):
-
-            with tf.device(self.player0.device_name):
-                d0 = a0.factory.tensor(q0.dequeue())
-
-        with tf.name_scope("triple-loading"):
-
-            with tf.device(self.player1.device_name):
-                d1 = a1.factory.tensor(q1.dequeue())
+            e1 = q1.enqueue(a1.value)
+            d1 = a1.factory.tensor(q1.dequeue())
 
         self.enqueue += [e0, e1]
         return a, d0, d1
@@ -2576,8 +2560,6 @@ class QueuedTripleSource:
 
     def mul_triple(self, a, b):
 
-        # TODO(Morten) manually unwrap and re-wrap of queued values, should be hidden away
-
         with tf.name_scope("triple-generation"):
             with tf.device(self.producer.device_name):
                 ab = a * b
@@ -2589,6 +2571,8 @@ class QueuedTripleSource:
                 dtypes=[ab0.factory.native_type],
                 shapes=[ab0.shape],
             )
+            e0 = q0.enqueue(ab0.value)
+            d0 = ab0.factory.tensor(q0.dequeue())
 
         with tf.device(self.player1.device_name):
             q1 = tf.queue.FIFOQueue(
@@ -2596,38 +2580,39 @@ class QueuedTripleSource:
                 dtypes=[ab1.factory.native_type],
                 shapes=[ab1.shape],
             )
-
-        with tf.name_scope("triple-distribution"):
-
-            with tf.device(self.player0.device_name):
-                e0 = q0.enqueue(ab0.value)
-
-        with tf.name_scope("triple-distribution"):
-
-            with tf.device(self.player1.device_name):
-                e1 = q1.enqueue(ab1.value)
-
-        with tf.name_scope("triple-loading"):
-
-            with tf.device(self.player0.device_name):
-                d0 = ab0.factory.tensor(q0.dequeue())
-
-        with tf.name_scope("triple-loading"):
-
-            with tf.device(self.player1.device_name):
-                d1 = ab1.factory.tensor(q1.dequeue())
+            e1 = q1.enqueue(ab1.value)
+            d1 = ab1.factory.tensor(q1.dequeue())
 
         self.enqueue += [e0, e1]
         return d0, d1
 
     def square_triple(self, a):
 
-        with tf.device(self.producer.device_name):
-            with tf.name_scope("triple"):
+        with tf.name_scope("triple-generation"):
+            with tf.device(self.producer.device_name):
                 aa = a * a
                 aa0, aa1 = self._share(aa)
 
-        return aa0, aa1
+        with tf.device(self.player0.device_name):
+            q0 = tf.queue.FIFOQueue(
+                capacity=self.capacity,
+                dtypes=[aa0.factory.native_type],
+                shapes=[aa0.shape],
+            )
+            e0 = q0.enqueue(aa0.value)
+            d0 = aa0.factory.tensor(q0.dequeue())
+
+        with tf.device(self.player1.device_name):
+            q1 = tf.queue.FIFOQueue(
+                capacity=self.capacity,
+                dtypes=[aa1.factory.native_type],
+                shapes=[aa1.shape],
+            )
+            e1 = q1.enqueue(aa1.value)
+            d1 = aa1.factory.tensor(q1.dequeue())
+
+        self.enqueue += [e0, e1]
+        return d0, d1
 
     def matmul_triple(self, a, b):
 
