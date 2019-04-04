@@ -57,11 +57,10 @@ bootstrap: pythoncheck pipcheck
 #
 # Rules for running our tests and for running various different linters
 # ###############################################
-test: lint pythoncheck
+test: pythoncheck
 	pytest -n 8 -x -m "not slow and not convert_maxpool"
 	pytest -n 8 -x -m slow
 	pytest -n 8 -x -m convert_maxpool
-
 
 lint: pythoncheck
 	flake8 --exclude=venv,build
