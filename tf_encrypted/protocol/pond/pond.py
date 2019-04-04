@@ -2616,12 +2616,31 @@ class QueuedTripleSource:
 
     def matmul_triple(self, a, b):
 
-        with tf.device(self.producer.device_name):
-            with tf.name_scope("triple"):
+        with tf.name_scope("triple-generation"):
+            with tf.device(self.producer.device_name):
                 ab = a.matmul(b)
                 ab0, ab1 = self._share(ab)
 
-        return ab0, ab1
+        with tf.device(self.player0.device_name):
+            q0 = tf.queue.FIFOQueue(
+                capacity=self.capacity,
+                dtypes=[ab0.factory.native_type],
+                shapes=[ab0.shape],
+            )
+            e0 = q0.enqueue(ab0.value)
+            d0 = ab0.factory.tensor(q0.dequeue())
+
+        with tf.device(self.player1.device_name):
+            q1 = tf.queue.FIFOQueue(
+                capacity=self.capacity,
+                dtypes=[ab1.factory.native_type],
+                shapes=[ab1.shape],
+            )
+            e1 = q1.enqueue(ab1.value)
+            d1 = ab1.factory.tensor(q1.dequeue())
+
+        self.enqueue += [e0, e1]
+        return d0, d1
 
     def conv2d_triple(self, a, b, strides, padding):
 
