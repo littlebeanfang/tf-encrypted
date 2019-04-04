@@ -2558,10 +2558,10 @@ class QueuedTripleSource:
 
         with tf.device(self.producer.device_name):
             with tf.name_scope("triple"):
-                a_conv2d_b = a.conv2d(b, strides, padding)
-                a_conv2d_b0, a_conv2d_b1 = self._share(a_conv2d_b)
+                ab = a.conv2d(b, strides, padding)
+                ab0, ab1 = self._share(ab)
 
-        return a_conv2d_b0, a_conv2d_b1
+        return self._build_queues(ab0, ab1)
 
     def indexer_mask(self, a, slice):
 
