@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 
 import tensorflow as tf
+from tensorflow.core.protobuf import rewriter_config_pb2
 
 from .player import Player
 
@@ -130,13 +131,30 @@ class LocalConfig(Config):
         assert isinstance(names, list)
         return [player for player in self._players if player.name in names]
 
-    def get_tf_config(self, log_device_placement=False):
+    def get_tf_config(self, log_device_placement=False, disable_optimizations=False):
         logger.info("Players: {}".format([player.name for player in self.players]))
         target = ''
+
+        if not disable_optimizations:
+            graph_options = tf.GraphOptions()
+        else:
+            graph_options = tf.GraphOptions(
+                optimizer_options=tf.OptimizerOptions(
+                    opt_level=tf.OptimizerOptions.L0,
+                    do_common_subexpression_elimination=False,
+                    do_constant_folding=False,
+                    do_function_inlining=False,
+                ),
+                rewrite_options=rewriter_config_pb2.RewriterConfig(
+                    arithmetic_optimization=rewriter_config_pb2.RewriterConfig.OFF,
+                ),
+            )
+        
         config = tf.ConfigProto(
             log_device_placement=log_device_placement,
             allow_soft_placement=False,
-            device_count={"CPU": len(self._players)}
+            device_count={"CPU": len(self._players)},
+            graph_options=graph_options,
         )
         return (target, config)
 
