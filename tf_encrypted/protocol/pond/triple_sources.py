@@ -350,7 +350,7 @@ class DatasetTripleSource:
         self.player1 = player1
         self.producer = producer
         self.capacity = capacity
-        self.queues = list()
+        self.dequeuers = list()
         self.enqueuers = list()
         self.initializers = list()
         self.directory = directory
@@ -556,7 +556,7 @@ class DatasetTripleSource:
         with tf.device(self.player1.device_name):
             f1, q1, e1, d1, i1 = build_triple_store(c1)
 
-        self.queues += [(f0, q0), (f1, q1)]
+        self.dequeuers += [(f0, q0.dequeue()), (f1, q1.dequeue())]
         self.enqueuers += [(e0, e1)]
         self.initializers += [(i0, i1)]
         return d0, d1
@@ -569,16 +569,16 @@ class DatasetTripleSource:
             sess.run(self.enqueuers, tag=tag)
         
         if save_to_file:
-            self.save_triples_to_file(sess, tag=tag)
+            self.save_triples_to_file(sess, num=num, tag=tag)
 
-    def save_triples_to_file(self, sess, tag=None):
+    def save_triples_to_file(self, sess, num, tag=None):
         if not os.path.exists(self.directory):
             os.makedirs(self.directory)
 
-        for filename, queue in self.queues:
+        for filename, dequeue in self.dequeuers:
             with tf.io.TFRecordWriter(filename) as writer:
-                size = sess.run(queue.size(), tag=tag)
-                for _ in range(size):
-                    serialized = tf.io.serialize_tensor(queue.dequeue())
+                # size = sess.run(queue.size(), tag=tag)
+                for _ in range(num):
+                    serialized = tf.io.serialize_tensor(dequeue)
                     triple = sess.run(serialized, tag=tag)
                     writer.write(triple)
