@@ -67,8 +67,12 @@ class Pond(Protocol):
         crypto_producer = crypto_producer or get_config().get_player("server2")
         crypto_producer = crypto_producer or get_config().get_player("crypto-producer")
 
-        # self.triple_source = OnlineTripleSource(crypto_producer.device_name)
+        self.triple_source = OnlineTripleSource(crypto_producer.device_name)
         self.triple_source = QueuedTripleSource(
+            player0=self.server_0,
+            player1=self.server_1,
+            producer=crypto_producer)
+        self.triple_source = DatasetTripleSource(
             player0=self.server_0,
             player1=self.server_1,
             producer=crypto_producer)
