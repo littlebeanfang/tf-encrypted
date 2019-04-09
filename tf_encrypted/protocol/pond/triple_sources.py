@@ -334,6 +334,34 @@ class QueuedTripleSource:
 
 
 class DatasetTripleSource:
+class PlaceholderTripleSource(BaseTripleSource):
+
+    # TODO(Morten) manually unwrap and re-wrap of values, should be hidden away
+
+    def __init__(self, player0, player1, producer):
+        super().__init__(player0, player1, producer)
+        self.placeholders = list()
+
+    def _build_queues(self, c0, c1):
+
+        with tf.device(self.player0.device_name):
+            r0 = tf.placeholder(
+                dtype=c0.factory.native_type,
+                shape=c0.shape,
+            )
+            d0 = c0.factory.tensor(r0)
+
+        with tf.device(self.player1.device_name):
+            r1 = tf.placeholder(
+                dtype=c1.factory.native_type,
+                shape=c1.shape,
+            )
+            d1 = c1.factory.tensor(r1)
+
+        self.placeholders += [r0, r1]
+        return d0, d1
+
+
 
     # TODO(Morten) manually unwrap and re-wrap of values, should be hidden away
 
