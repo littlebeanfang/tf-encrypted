@@ -1,7 +1,5 @@
 import numpy as np
 
-from typing import List
-
 from . import core
 
 from tf_encrypted.protocol.pond import PondPrivateTensor, PondMaskedTensor
@@ -27,10 +25,10 @@ class Conv2D(core.Layer):
     """
 
     def __init__(self,
-                 input_shape: List[int], filter_shape: List[int],
-                 strides: int = 1, padding: str = "SAME",
+                 input_shape, filter_shape,
+                 strides=1, padding="SAME",
                  filter_init=lambda shp: np.random.normal(scale = 0.1, size = shp),
-                 l2reg_lambda: float = 0.0, channels_first: bool = True) -> None:
+                 l2reg_lambda=0.0, channels_first=True):
         self.fshape = filter_shape
         self.strides = strides
         self.padding = padding
@@ -47,7 +45,7 @@ class Conv2D(core.Layer):
 
         super(Conv2D, self).__init__(input_shape)
 
-    def get_output_shape(self) -> List[int]:
+    def get_output_shape(self):
         h_filter, w_filter, d_filters, n_filters = self.fshape
 
         if self.channels_first:

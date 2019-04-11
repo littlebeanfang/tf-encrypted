@@ -38,6 +38,7 @@ def register() -> Dict[str, Any]:
         'ArgMax': argmax,
         'required_space_to_batch_paddings': required_space_to_batch_paddings,
         'flatten': flatten,
+        'conv2d': keras_conv2d,
         'Slice': slice,
         'Neg': negative,
     }
@@ -88,26 +89,16 @@ def matmul(converter: Converter, node: Any, inputs: List[str]) -> Any:
     return layer.forward(a)
 
 
-def conv2d(converter: Converter, node: Any, inputs: List[str]) -> Any:
+def conv2d(converter, node, inputs):
     input = converter.outputs[inputs[0]]
     filter = converter.outputs[inputs[1]]
 
     if isinstance(filter, tf.NodeDef):
         shape = [i.size for i in filter.attr["value"].tensor.tensor_shape.dim]
-        dtype = filter.attr["dtype"].type
-
-        if dtype == tf.float32:
-            nums = array.array('f', filter.attr["value"].tensor.tensor_content)
-        elif dtype == tf.float64:
-            nums = array.array('d', filter.attr["value"].tensor.tensor_content)
-        else:
-            raise TypeError("Unsupported dtype for weights")
-
-        inputter_fn = lambda: tf.constant(np.array(nums).reshape(shape))
-        w = converter.protocol.define_private_input(converter.model_provider, inputter_fn)
+        w = nodef_to_private_pond(converter, filter)
     else:
-        w = filter
         shape = filter.shape.as_list()
+        w = filter
 
     format = node.attr["data_format"].s.decode('ascii')
 
@@ -120,6 +111,33 @@ def conv2d(converter: Converter, node: Any, inputs: List[str]) -> Any:
 
     layer.initialize(initial_weights=w)
 
+    out = layer.forward(input)
+
+    return out
+
+
+def keras_conv2d(converter, intermediaries, inputs):
+    input = converter.outputs[inputs[0]]
+
+    conv_op = intermediaries["Conv2D"]
+    kernel = intermediaries["kernel"]
+    bias = intermediaries["bias"]
+
+    input_shape = input.shape.as_list()
+    shape = [i.size for i in kernel.attr["value"].tensor.tensor_shape.dim]
+    k = nodef_to_private_pond(converter, kernel)
+    b = nodef_to_private_pond(converter, bias)
+    format = conv_op.attr["data_format"].s.decode('ascii')
+    strides = int(max(conv_op.attr["strides"].list.i))
+    padding = conv_op.attr["padding"].s.decode('ascii')
+
+    layer = Conv2D(
+        input_shape, shape,
+        strides=strides,
+        padding=padding,
+        channels_first=format == "NCHW"
+    )
+    layer.initialize(initial_weights=k, initial_bias=b)
     out = layer.forward(input)
 
     return out
@@ -431,7 +449,13 @@ def space_to_batch_nd(converter, node, inputs):
 
 def flatten(converter, node, inputs):
     input = converter.outputs[inputs[0]]
-    return converter.protocol.reshape(input, [1, -1])
+
+    shape = input.shape.as_list()
+    non_batch = 1
+    for dim in shape[1:]:
+        non_batch *= dim
+
+    return converter.protocol.reshape(input, [-1, non_batch])
 
 
 def required_space_to_batch_paddings(converter: Converter, node: Any, inputs: List[str]):
@@ -447,24 +471,28 @@ def required_space_to_batch_paddings(converter: Converter, node: Any, inputs: Li
             inputs_int32.append(tf.cast(inputs_node[i].reveal().decode(), tf.int32))
 
     if len(inputs_int32) == 2:
+        input_shape, block_shape = inputs_int32
+
         def inputter_pad():
-            pads, _ = tf.required_space_to_batch_paddings(inputs_int32[0], inputs_int32[1])
+            pads, _ = tf.required_space_to_batch_paddings(input_shape, block_shape)
             return tf.cast(pads, tf.float64)
 
         def inputter_crop():
-            _, crops = tf.required_space_to_batch_paddings(inputs_int32[0], inputs_int32[1])
+            _, crops = tf.required_space_to_batch_paddings(input_shape, block_shape)
             return tf.cast(crops, tf.float64)
     else:
+        base_paddings, input_shape, block_shape = inputs_int32
+
         def inputter_pad():
-            pads, _ = tf.required_space_to_batch_paddings(inputs_int32[0],
-                                                          inputs_int32[1],
-                                                          base_paddings=inputs_int32[2])
+            pads, _ = tf.required_space_to_batch_paddings(input_shape,
+                                                          block_shape,
+                                                          base_paddings=base_paddings)
             return tf.cast(pads, tf.float64)
 
         def inputter_crop():
-            _, crops = tf.required_space_to_batch_paddings(inputs_int32[0],
-                                                           inputs_int32[1],
-                                                           base_paddings=inputs_int32[2])
+            _, crops = tf.required_space_to_batch_paddings(input_shape,
+                                                           block_shape,
+                                                           base_paddings=base_paddings)
             return tf.cast(crops, tf.float64)
 
     pad_private = converter.protocol.define_public_input(converter.model_provider, inputter_pad)
@@ -544,8 +572,10 @@ def nodef_to_public_pond(converter, x):
     return x_public
 
 
-def nodef_to_private_pond(converter, x):
+def nodef_to_private_pond(converter, x, int_warn=False, int_err=False):
     dtype = x.attr["dtype"].type
+    warn_msg = "Unexpected dtype {} found at node {}"
+    err_msg = "Unsupported dtype {} found at node {}"
 
     x_shape = [i.size for i in x.attr["value"].tensor.tensor_shape.dim]
 
@@ -555,9 +585,13 @@ def nodef_to_private_pond(converter, x):
         elif dtype == tf.float64:
             nums = x.attr["value"].tensor.float_val
         elif dtype == tf.int32:
+            if int_err:
+                raise TypeError(err_msg.format(dtype, x.name))
+            if int_warn:
+                logging.warn(warn_msg.format(dtype, x.name))
             nums = x.attr["value"].tensor.int_val
         else:
-            raise TypeError("Unsupported dtype")
+            raise TypeError(err_msg.format(dtype, x.name))
 
         def inputter_fn():
             return tf.constant(np.array(nums).reshape(1, 1))
@@ -568,9 +602,13 @@ def nodef_to_private_pond(converter, x):
         elif dtype == tf.float64:
             nums = array.array('d', x.attr["value"].tensor.tensor_content)
         elif dtype == tf.int32:
+            if int_err:
+                raise TypeError(err_msg.format(dtype, x.name))
+            if int_warn:
+                logging.warn(warn_msg.format(dtype, x.name))
             nums = array.array('i', x.attr["value"].tensor.tensor_content)
         else:
-            raise TypeError("Unsupported dtype")
+            raise TypeError(err_msg.format(dtype, x.name))
 
         def inputter_fn():
             return tf.constant(np.array(nums).reshape(x_shape))
