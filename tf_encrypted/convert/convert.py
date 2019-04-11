@@ -137,6 +137,9 @@ def find_leaves(scope, subscope_map):
 
 def get_intermediaries(specop_scope, subscope_map):
     """
+    An intermediary (op) for a subgraph is an op that is neither an input or
+    an output for all ops outside of that subgraph.
+
     Given a specop_scope, look for registered intermediary ops in the
     corresponding value of subscope_map and collect their NodeDefs into a
     OrderedDict keyed by the registered intermediary op name.
