@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 
 from ..layers import Conv2D, Relu, Sigmoid, Dense, AveragePooling2D, MaxPooling2D
 from .convert import Converter
+from ..protocol.pond import PondPrivateTensor, PondMaskedTensor
 
 
 def register() -> Dict[str, Any]:
@@ -462,13 +463,18 @@ def required_space_to_batch_paddings(converter: Converter, node: Any, inputs: Li
 
     inputs_node = [converter.outputs[inputs[i]] for i in range(len(inputs))]
     inputs_int32 = []
-    for i in range(len(inputs_node)):
-        if isinstance(inputs_node[i], tf.NodeDef):
-            inputs_int32.append(nodef_to_numpy_array(inputs_node[i]))
-        else:
+    for input in inputs_node:
+        pvt_check = isinstance(input, PondPrivateTensor)
+        msk_check = isinstance(input, PondMaskedTensor)
+        if pvt_check or msk_check:
             msg = "Revealing private input: required_space_to_batch_paddings assumes public input."
             logging.warning(msg)
-            inputs_int32.append(tf.cast(inputs_node[i].reveal().decode(), tf.int32))
+            inputs_int32.append(tf.cast(input.reveal().decode(), tf.int32))
+        elif isinstance(input, tf.NodeDef):
+            inputs_int32.append(nodef_to_numpy_array(input))
+        else:
+            msg = "Unexpected input of type {}."
+            raise TypeError(msg.format(type(input)))
 
     if len(inputs_int32) == 2:
         input_shape, block_shape = inputs_int32
