@@ -184,6 +184,11 @@ def specop_namespace(graph_def):
 
 
 def find_specops(graph_def, output_name):
+    """
+    For special ops defined in _REGISTERED_SPECOPS, assemble necessary info to
+    convert them and place into the specops_dict. Also returns these ops'
+    collective inputs and outputs together in separate arrays.
+    """
 
     specops_dict = OrderedDict()
     all_specop_inputs = []
@@ -208,6 +213,10 @@ def find_specops(graph_def, output_name):
 
 
 def select_relevant_ops(all_specop_inputs, all_specop_outputs, graph_def):
+    """
+    Prune out subgraphs that have been identified as special ops from the
+    graph_def, and return it.
+    """
 
     trimmed_graph = OrderedDict()
     for n in graph_def.node:
@@ -230,8 +239,14 @@ def select_relevant_ops(all_specop_inputs, all_specop_outputs, graph_def):
     return trimmed_graph
 
 
-def match_numbered_scope(scope_to_match, search_string, return_group=True):
-    expr = '({0})/|({0}_[0-9]+)/'.format(scope_to_match)
+def match_numbered_scope(specop, search_string, return_group=True):
+    """
+    Find a numbered scope matching a specop from _REGISTERED_SPECOPS,
+    and return it if found
+
+    Example: 'conv2d' will match '...conv2d_345/...' and return 'conv2d_345'.
+    """
+    expr = '({0})/|({0}_[0-9]+)/'.format(specop)
     match = re.search(expr, search_string)
     if match is not None:
         if not return_group:
@@ -240,6 +255,11 @@ def match_numbered_scope(scope_to_match, search_string, return_group=True):
 
 
 def match_numbered_leaf(leaf_to_match, search_string):
+    """
+    Find a numbered leaf matching a tf.Operation and return it if found.
+
+    Example: 'Conv2D' will match '.../Conv2D_5' and return 'Conv2D_5'
+    """
     expr = '/({0})|/({0}_[0-9]+)'.format(leaf_to_match)
     match = re.search(expr, search_string)
     if match is not None:
@@ -247,6 +267,11 @@ def match_numbered_leaf(leaf_to_match, search_string):
 
 
 def specop_from_numberedscope(scope):
+    """
+    An inverse for `match_numbered_scope`.
+
+    Example: 'conv2d_4' will produce 'conv2d'.
+    """
     expr = '[_a-zA-Z0-9]+(?=_[0-9]+)'
     match = re.search(expr, scope)
     if match is not None:
