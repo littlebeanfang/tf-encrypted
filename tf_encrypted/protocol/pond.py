@@ -490,7 +490,7 @@ class Pond(Protocol):
             player = get_config().get_player(player)
         assert isinstance(player, Player)
 
-        def helper(x: Union["PondPrivateTensor", "PondMasterTensor"]) -> tf.Tensor:
+        def helper(x: Union["PondPrivateTensor", "PondMaskedTensor"]) -> tf.Tensor:
             if isinstance(x, PondMaskedTensor):
                 x = x.unmasked
             assert isinstance(
@@ -1610,6 +1610,9 @@ class PondMaskedTensor(PondTensor):
     @property
     def unwrapped(self) -> Tuple[AbstractTensor, ...]:
         return (self.a, self.a0, self.a1, self.alpha_on_0, self.alpha_on_1)
+
+    def reveal(self) -> PondPublicTensor:
+        return self.prot.reveal(self.unmasked)
 
 
 #
