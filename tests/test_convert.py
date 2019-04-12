@@ -66,7 +66,7 @@ class TestConvert(unittest.TestCase):
             else:
                 assert isinstance(actual, (list, tuple)), "expected output to be tensor sequence"
             try:
-                output = sess.run([xi.reveal() for xi in x], tag='reveal')
+                output = sess.run([xi.reveal().decode() for xi in x], tag='reveal')
             except AttributeError:
                 # assume all xi are all public
                 output = sess.run([xi for xi in x], tag='reveal')
@@ -647,7 +647,7 @@ def run_flatten(input):
 
 
 def export_keras_conv2d(filename, input_shape):
-    model, _ = _keras_conv2d_core(input_shape)
+    model, _ = _keras_conv2d_core(shape=input_shape)
 
     sess = K.get_session()
     output = model.get_layer('conv2d').output
@@ -655,18 +655,25 @@ def export_keras_conv2d(filename, input_shape):
 
 
 def run_keras_conv2d(input):
-    _, out = _keras_conv2d_core(input.shape)
+    _, out = _keras_conv2d_core(input=input)
     return out
 
 
-def _keras_conv2d_core(shape):
-    model = Sequential()
+def _keras_conv2d_core(shape=None, input=None):
+    assert shape is None or input is None
+    if shape is None:
+        shape = input.shape
 
+    model = Sequential()
     c2d = Conv2D(2, (3, 3),
                  data_format="channels_last",
+                 use_bias=False,
                  input_shape=shape[1:])
     model.add(c2d)
-    out = model.predict(np.random.uniform(size=shape))
+
+    if input is None:
+        input = np.random.uniform(size=shape)
+    out = model.predict(input)
     return model, out
 
 
