@@ -63,21 +63,21 @@ class Conv2D(core.Layer):
         return [n_x, n_filters, h_out, w_out]
 
     def initialize(self, initial_weights=None, initial_bias=None) -> None:
+
+        def is_secret(x):
+            is_pvt = isinstance(x, PondPrivateTensor)
+            is_msk = isinstance(x, PondMaskedTensor)
+            return is_pvt or is_msk
+
         if initial_weights is None:
             initial_weights = self.filter_init(self.fshape)
 
-        if isinstance(initial_weights, PondPrivateTensor):
-            self.weights = initial_weights
-        elif isinstance(initial_weights, PondMaskedTensor):
+        if is_secret(initial_weights):
             self.weights = initial_weights
         else:
             self.weights = self.prot.define_private_variable(initial_weights)
 
-        if initial_bias is None:
-            self.bias = self.prot.define_private_variable(np.zeros(self.output_shape[1:]))
-        elif isinstance(initial_bias, PondPrivateTensor):
-            self.bias = initial_bias
-        elif isinstance(initial_bias, PondMaskedTensor):
+        if initial_bias is None or is_secret(initial_bias):
             self.bias = initial_bias
         else:
             self.bias = self.prot.define_private_variable(initial_bias)
@@ -90,8 +90,8 @@ class Conv2D(core.Layer):
             x = self.prot.transpose(x, perm=[0, 3, 1, 2])
 
         out = self.prot.conv2d(x, self.weights, self.strides, self.padding)
-
-        out = out + self.bias
+        if self.bias is not None:
+            out = out + self.bias
 
         if not self.channels_first:
             out = self.prot.transpose(out, perm=[0, 2, 3, 1])
