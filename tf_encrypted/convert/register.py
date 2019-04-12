@@ -131,6 +131,7 @@ def keras_conv2d(converter, intermediaries, inputs):
     format = conv_op.attr["data_format"].s.decode('ascii')
     strides = int(max(conv_op.attr["strides"].list.i))
     padding = conv_op.attr["padding"].s.decode('ascii')
+    print(format)
 
     layer = Conv2D(
         input_shape, shape,
@@ -138,8 +139,15 @@ def keras_conv2d(converter, intermediaries, inputs):
         padding=padding,
         channels_first=format == "NCHW"
     )
+
+    b = b.expand_dims(axis=0).expand_dims(axis=-1).expand_dims(axis=-1)
+
     layer.initialize(initial_weights=k, initial_bias=b)
+    print(layer.weights)
+    print(layer.bias)
     out = layer.forward(input)
+
+    tf.summary.FileWriter("./kc2d", graph=tf.get_default_graph())
 
     return out
 
@@ -578,7 +586,7 @@ def nodef_to_public_pond(converter, x):
     return x_public
 
 
-def nodef_to_private_pond(converter, x, int_warn=False, int_err=False):
+def nodef_to_private_pond(converter, x):
     dtype = x.attr["dtype"].type
     warn_msg = "Unexpected dtype {} found at node {}"
     err_msg = "Unsupported dtype {} found at node {}"
@@ -591,10 +599,7 @@ def nodef_to_private_pond(converter, x, int_warn=False, int_err=False):
         elif dtype == tf.float64:
             nums = x.attr["value"].tensor.float_val
         elif dtype == tf.int32:
-            if int_err:
-                raise TypeError(err_msg.format(dtype, x.name))
-            if int_warn:
-                logging.warn(warn_msg.format(dtype, x.name))
+            logging.warn(warn_msg.format(dtype, x.name))
             nums = x.attr["value"].tensor.int_val
         else:
             raise TypeError(err_msg.format(dtype, x.name))
@@ -608,15 +613,14 @@ def nodef_to_private_pond(converter, x, int_warn=False, int_err=False):
         elif dtype == tf.float64:
             nums = array.array('d', x.attr["value"].tensor.tensor_content)
         elif dtype == tf.int32:
-            if int_err:
-                raise TypeError(err_msg.format(dtype, x.name))
-            if int_warn:
-                logging.warn(warn_msg.format(dtype, x.name))
+            logging.warn(warn_msg.format(dtype, x.name))
             nums = array.array('i', x.attr["value"].tensor.tensor_content)
         else:
             raise TypeError(err_msg.format(dtype, x.name))
 
         def inputter_fn():
+            y = tf.constant(np.array(nums).reshape(x_shape))
+            print(y)
             return tf.constant(np.array(nums).reshape(x_shape))
 
     x_private = converter.protocol.define_private_input(converter.model_provider, inputter_fn)

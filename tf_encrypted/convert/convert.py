@@ -104,83 +104,31 @@ class Converter():
         return self.outputs[graph_def.node[-1].name]
 
 
-def node_name(n: str) -> str:
-    if n.startswith("^"):
-        return n[1:]
-    else:
-        return n.split(":")[0]
-
-
-class InvalidArgumentError(Exception):
-    pass
-
-
-def find_leaves(scope, subscope_map):
+def select_relevant_ops(all_specop_inputs, all_specop_outputs, graph_def):
     """
-    Assembles input and output leaf nodes of the subgraph represented by subscope_map.
+    Prune out subgraphs that have been identified as special ops from the
+    graph_def, and return the pruned graph_def.
     """
 
-    input_leaves = []
-    output_leaves = list(subscope_map.keys())
-    for name, node in subscope_map.items():
-        for input in node.input:
-            if match_numbered_scope(scope, input) is None:
-                input_leaves.append(input)
-            if input in output_leaves:
-                output_leaves.remove(input)
-    seen = set()
-    adder = seen.add
-    input_leaves = [x for x in input_leaves if not (x in seen or adder(x))]
+    trimmed_graph = OrderedDict()
+    for n in graph_def.node:
+        for op in _REGISTERED_SPECOPS:
 
-    return input_leaves, output_leaves
+            matched = False
+            # If the node falls under a specop scope,
+            # only add if it's an input or output to the specop.
+            if match_numbered_scope(op, n.name, return_group=False):
+                matched = True
+                is_input = n.name in all_specop_inputs
+                is_output = n.name in all_specop_outputs
+                if is_input or is_output:
+                    trimmed_graph[n.name] = n
+                break
+        # Otherwise, just add it
+        if not matched:
+            trimmed_graph[n.name] = n
 
-
-def get_intermediaries(specop_scope, subscope_map):
-    """
-    An intermediary (op) for a subgraph is an op that is neither an input or
-    an output for all ops outside of that subgraph.
-
-    Given a specop_scope, look for registered intermediary ops in the
-    corresponding value of subscope_map and collect their NodeDefs into a
-    OrderedDict keyed by the registered intermediary op name.
-    """
-    specop = specop_from_numberedscope(specop_scope)
-    if specop is None:
-        return None
-    intermediary_names = _REGISTERED_SPECOPS[specop]
-    intermediaries = OrderedDict()
-    subscope_ops_map = subscope_map[specop_scope]
-    for op in intermediary_names:
-        for node_name in subscope_ops_map:
-            if match_numbered_leaf(op, node_name) is not None:
-                intermediaries[op] = subscope_ops_map[node_name]
-    return intermediaries
-
-
-def specop_namespace(graph_def):
-    """
-    Gathers all subgraphs corresponding to registered special ops.
-
-    For each specop scope matching `{specop}_[0-9]+/`, assemble all ops
-    falling under that scope into a map of op name to op node, and add the
-    map to the namespace keyed by its scope.
-
-    Returns an OrderedDict[scope --> ops_map],
-    where ops_map is an OrderedDict[NodeDef.name --> NodeDef].
-    """
-
-    namespace = OrderedDict()
-    for node in graph_def.node:
-        for specop in _REGISTERED_SPECOPS:
-            node_name = node.name
-            this_scope = match_numbered_scope(specop, node_name)
-            if this_scope is None:
-                continue
-            if this_scope not in namespace:
-                namespace[this_scope] = OrderedDict()
-            namespace[this_scope][node_name] = node
-
-    return namespace
+    return trimmed_graph
 
 
 def find_specops(graph_def, output_name):
@@ -212,31 +160,72 @@ def find_specops(graph_def, output_name):
     return specops_dict, all_specop_inputs, all_specop_outputs
 
 
-def select_relevant_ops(all_specop_inputs, all_specop_outputs, graph_def):
+def specop_namespace(graph_def):
     """
-    Prune out subgraphs that have been identified as special ops from the
-    graph_def, and return it.
+    Gathers all subgraphs corresponding to registered special ops.
+
+    For each specop scope matching `{specop}_[0-9]+/`, assemble all ops
+    falling under that scope into a map of op name to op node, and add the
+    map to the namespace keyed by its scope.
+
+    Returns an OrderedDict[scope --> ops_map],
+    where ops_map is an OrderedDict[NodeDef.name --> NodeDef].
     """
 
-    trimmed_graph = OrderedDict()
-    for n in graph_def.node:
-        for op in _REGISTERED_SPECOPS:
+    namespace = OrderedDict()
+    for node in graph_def.node:
+        for specop in _REGISTERED_SPECOPS:
+            node_name = node.name
+            this_scope = match_numbered_scope(specop, node_name)
+            if this_scope is None:
+                continue
+            if this_scope not in namespace:
+                namespace[this_scope] = OrderedDict()
+            namespace[this_scope][node_name] = node
 
-            matched = False
-            # If the node falls under a specop scope,
-            # only add if it's an input or output to the specop.
-            if match_numbered_scope(op, n.name, return_group=False):
-                matched = True
-                is_input = n.name in all_specop_inputs
-                is_output = n.name in all_specop_outputs
-                if is_input or is_output:
-                    trimmed_graph[n.name] = n
-                break
-        # Otherwise, just add it
-        if not matched:
-            trimmed_graph[n.name] = n
+    return namespace
 
-    return trimmed_graph
+
+def get_intermediaries(specop_scope, subscope_map):
+    """
+    An intermediary (op) for a subgraph is an op that is neither an input or
+    an output for all ops outside of that subgraph.
+
+    Given a specop_scope, look for registered intermediary ops in the
+    corresponding value of subscope_map and collect their NodeDefs into a
+    OrderedDict keyed by the registered intermediary op name.
+    """
+    specop = specop_from_numberedscope(specop_scope)
+    if specop is None:
+        return None
+    intermediary_names = _REGISTERED_SPECOPS[specop]
+    intermediaries = OrderedDict()
+    subscope_ops_map = subscope_map[specop_scope]
+    for op in intermediary_names:
+        for node_name in subscope_ops_map:
+            if match_numbered_leaf(op, node_name) is not None:
+                intermediaries[op] = subscope_ops_map[node_name]
+    return intermediaries
+
+
+def find_leaves(scope, subscope_map):
+    """
+    Assembles input and output leaf nodes of the subgraph represented by subscope_map.
+    """
+
+    input_leaves = []
+    output_leaves = list(subscope_map.keys())
+    for name, node in subscope_map.items():
+        for input in node.input:
+            if match_numbered_scope(scope, input) is None:
+                input_leaves.append(input)
+            if input in output_leaves:
+                output_leaves.remove(input)
+    seen = set()
+    adder = seen.add
+    input_leaves = [x for x in input_leaves if not (x in seen or adder(x))]
+
+    return input_leaves, output_leaves
 
 
 def match_numbered_scope(specop, search_string, return_group=True):
@@ -278,3 +267,14 @@ def specop_from_numberedscope(scope):
         return match.group(0)
     else:
         return scope
+
+
+def node_name(n: str) -> str:
+    if n.startswith("^"):
+        return n[1:]
+    else:
+        return n.split(":")[0]
+
+
+class InvalidArgumentError(Exception):
+    pass

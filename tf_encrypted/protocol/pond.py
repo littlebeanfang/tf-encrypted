@@ -1397,14 +1397,14 @@ class PondTensor(abc.ABC):
         """
         return self.prot.truncate(self)
 
-    def expand_dims(self):
+    def expand_dims(self, axis=None):
         """
         :See: tf.expand_dims
 
         :return: A new PondTensor
         :rtype: PondTensor
         """
-        return self.prot.expand_dims(self)
+        return self.prot.expand_dims(self, axis=axis)
 
     def reshape(self, shape: List[int]) -> "PondTensor":
         """

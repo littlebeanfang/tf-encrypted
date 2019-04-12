@@ -11,7 +11,7 @@ from tensorflow.python.platform import gfile
 from tensorflow.python.framework import graph_util
 from tensorflow.python.framework import graph_io
 from tensorflow.keras import backend as K
-from tensorflow.keras.layers import Flatten
+from tensorflow.keras.layers import Flatten, Conv2D
 from tensorflow.keras.models import Sequential
 
 import tf_encrypted as tfe
@@ -106,10 +106,10 @@ class TestConvert(unittest.TestCase):
             cls._assert_successful_conversion(prot, graph_def, actual, input_fn, decimals=decimals, **kwargs)
 
     def test_cnn_convert(self):
-        test_input = np.ones([1, 1, 28, 28])
+        test_input = np.ones([1, 1, 8, 8])
         self._test_with_ndarray_input_fn('cnn', test_input, protocol='Pond')
 
-        test_input = np.ones([1, 28, 28, 1])
+        test_input = np.ones([1, 8, 8, 1])
         self._test_with_ndarray_input_fn('cnn', test_input, protocol='Pond', data_format='NHWC')
 
     def test_matmul_convert(self):
@@ -211,6 +211,10 @@ class TestConvert(unittest.TestCase):
     def test_flatten_convert(self):
         test_input = np.random.uniform(size=(1, 3, 3, 2)).astype(np.float32)
         self._test_with_ndarray_input_fn('flatten', test_input, decimals=2, protocol='Pond')
+
+    def test_keras_conv2d_convert(self):
+        test_input = np.ones([1, 8, 8, 1])
+        self._test_with_ndarray_input_fn('keras_conv2d', test_input, protocol='Pond')
 
 
 def export_argmax(filename, input_shape, axis):
@@ -329,7 +333,7 @@ def run_cnn(input, data_format="NCHW"):
     if data_format == "NCHW":
         x = tf.transpose(x, (0, 2, 3, 1))
 
-    filter = tf.constant(np.ones((5, 5, 1, 16)), dtype=tf.float32, name="weights")
+    filter = tf.constant(np.ones((3, 3, 1, 3)), dtype=tf.float32, name="weights")
     x = tf.nn.conv2d(x, filter, (1, 1, 1, 1), "SAME", name="nn_conv2d")
 
     with tf.Session() as sess:
@@ -344,7 +348,7 @@ def run_cnn(input, data_format="NCHW"):
 def export_cnn(filename: str, input_shape: List[int], data_format="NCHW"):
     input = tf.placeholder(tf.float32, shape=input_shape, name="input")
 
-    filter = tf.constant(np.ones((5, 5, 1, 16)), dtype=tf.float32, name="weights")
+    filter = tf.constant(np.ones((3, 3, 1, 3)), dtype=tf.float32, name="weights")
     x = tf.nn.conv2d(input, filter, (1, 1, 1, 1), "SAME", data_format=data_format, name="nn_conv2d")
 
     return export(x, filename)
@@ -640,6 +644,30 @@ def run_flatten(input):
     model = Sequential()
     model.add(Flatten(input_shape=input.shape[1:]))
     return model.predict(input)
+
+
+def export_keras_conv2d(filename, input_shape):
+    model, _ = _keras_conv2d_core(input_shape)
+
+    sess = K.get_session()
+    output = model.get_layer('conv2d').output
+    return export(output, filename, sess=sess)
+
+
+def run_keras_conv2d(input):
+    _, out = _keras_conv2d_core(input.shape)
+    return out
+
+
+def _keras_conv2d_core(shape):
+    model = Sequential()
+
+    c2d = Conv2D(2, (3, 3),
+                 data_format="channels_last",
+                 input_shape=shape[1:])
+    model.add(c2d)
+    out = model.predict(np.random.uniform(size=shape))
+    return model, out
 
 
 def run_required_space_to_batch_paddings(input):
