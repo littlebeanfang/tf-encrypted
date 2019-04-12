@@ -122,16 +122,20 @@ def keras_conv2d(converter, intermediaries, inputs):
 
     conv_op = intermediaries["Conv2D"]
     kernel = intermediaries["kernel"]
-    bias = intermediaries["bias"]
+    k = nodef_to_private_pond(converter, kernel)
+    try:
+        bias = intermediaries["bias"]
+        b = nodef_to_private_pond(converter, bias)
+        for ax in [0, -1, -1]:
+            b = b.expand_dims(axis=ax)
+    except KeyError:
+        b = None
 
     input_shape = input.shape.as_list()
     shape = [i.size for i in kernel.attr["value"].tensor.tensor_shape.dim]
-    k = nodef_to_private_pond(converter, kernel)
-    b = nodef_to_private_pond(converter, bias)
     format = conv_op.attr["data_format"].s.decode('ascii')
     strides = int(max(conv_op.attr["strides"].list.i))
     padding = conv_op.attr["padding"].s.decode('ascii')
-    print(format)
 
     layer = Conv2D(
         input_shape, shape,
@@ -140,14 +144,8 @@ def keras_conv2d(converter, intermediaries, inputs):
         channels_first=format == "NCHW"
     )
 
-    b = b.expand_dims(axis=0).expand_dims(axis=-1).expand_dims(axis=-1)
-
     layer.initialize(initial_weights=k, initial_bias=b)
-    print(layer.weights)
-    print(layer.bias)
     out = layer.forward(input)
-
-    tf.summary.FileWriter("./kc2d", graph=tf.get_default_graph())
 
     return out
 
